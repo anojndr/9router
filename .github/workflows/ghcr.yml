@@ -1,0 +1,238 @@
+name: Build and Push GHCR
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: docker-ghcr-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      version: ${{ steps.pkg.outputs.version }}
+      version_tag_exists: ${{ steps.version_tag.outputs.exists }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Read version from package.json
+        id: pkg
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if [ -z "$version" ] || [ "$version" = "undefined" ]; then
+            echo "package.json version is empty" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check if version tag already exists on GHCR
+        id: version_tag
+        env:
+          VERSION: ${{ steps.pkg.outputs.version }}
+        run: |
+          set -euo pipefail
+          image="${REGISTRY}/${IMAGE_NAME}:${VERSION}"
+          set +e
+          err="$(docker manifest inspect "$image" 2>&1)"
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Version tag ${VERSION} already published — will not overwrite (only :latest and :<sha>)."
+          elif echo "$err" | grep -qiE 'manifest unknown|name unknown|not found|HTTP 404|404 Not Found'; then
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "Version tag ${VERSION} not found — will publish after build."
+          else
+            echo "GHCR manifest inspect failed (fail closed; not treating as absent):" >&2
+            echo "$err" >&2
+            exit 1
+          fi
+
+  build-amd64:
+    needs: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (OCI labels)
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=build,enable=false
+
+      - name: Build and push amd64 image by digest
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            NPM_REGISTRY=https://registry.npmjs.org
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true
+          cache-from: type=gha,scope=amd64
+          cache-to: type=gha,mode=max,scope=amd64
+          provenance: false
+          sbom: false
+
+  # Native ARM64 runner (no QEMU). Requires GitHub-hosted ubuntu-24.04-arm on the repo/org plan.
+  build-arm64:
+    needs: prepare
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (OCI labels)
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=build,enable=false
+
+      - name: Build and push arm64 image by digest
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/arm64
+          push: true
+          build-args: |
+            NPM_REGISTRY=https://registry.npmjs.org
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true
+          cache-from: type=gha,scope=arm64
+          cache-to: type=gha,mode=max,scope=arm64
+          provenance: false
+          sbom: false
+
+  merge-and-push:
+    needs: [prepare, build-amd64, build-arm64]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.merge.outputs.digest }}
+    steps:
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (labels + rolling tags)
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest
+            type=sha,format=short
+
+      - name: Merge platforms and push rolling tags (latest + short SHA)
+        id: merge
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          DIGEST_AMD64: ${{ needs.build-amd64.outputs.digest }}
+          DIGEST_ARM64: ${{ needs.build-arm64.outputs.digest }}
+        run: |
+          set -euo pipefail
+          tag_args=()
+          while IFS= read -r tag; do
+            [ -n "$tag" ] && tag_args+=("-t" "$tag")
+          done <<< "${{ steps.meta.outputs.tags }}"
+          annotation_args=()
+          while IFS= read -r label; do
+            [ -n "$label" ] && annotation_args+=("--annotation" "index:${label}")
+          done <<< "${{ steps.meta.outputs.labels }}"
+          docker buildx imagetools create "${tag_args[@]}" "${annotation_args[@]}" \
+            "${IMAGE}@${DIGEST_AMD64}" \
+            "${IMAGE}@${DIGEST_ARM64}"
+          # Index descriptor digest (not in raw OCI index JSON); use Buildx's Manifest.Digest field.
+          digest="$(docker buildx imagetools inspect "${IMAGE}:latest" --format '{{json .Manifest.Digest}}' | tr -d '"\n')"
+          if [ -z "$digest" ] || [ "$digest" = "null" ]; then
+            echo "Failed to resolve manifest digest for ${IMAGE}:latest" >&2
+            exit 1
+          fi
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+          echo "Published multi-arch manifest: ${digest}"
+
+      - name: Publish immutable version tag
+        if: needs.prepare.outputs.version_tag_exists != 'true'
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        run: |
+          set -euo pipefail
+          image="${REGISTRY}/${IMAGE_NAME}:${VERSION}"
+          ref="${IMAGE}:latest"
+
+          set +e
+          err="$(docker manifest inspect "$image" 2>&1)"
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "Version tag ${VERSION} already exists — skipping (another publish won the race)."
+            exit 0
+          elif ! echo "$err" | grep -qiE 'manifest unknown|name unknown|not found|HTTP 404|404 Not Found'; then
+            echo "GHCR manifest inspect failed before version tag publish:" >&2
+            echo "$err" >&2
+            exit 1
+          fi
+
+          echo "Tagging ${image} -> ${ref}"
+          docker buildx imagetools create "${image}" "${ref}"
