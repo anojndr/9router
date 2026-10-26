@@ -3,6 +3,7 @@
 ## Fixes
 - **Codex**: add Responses beta/routing headers; keep compaction retries on `/compact`; preserve requested includes; sanitize call IDs and repair interrupted tool histories; inline native remote images; parse structured SSE errors before visible output; use a Codex model by default in CLI quick setup
 - **Models**: collect models.dev context/output limits for every model a gateway lists upstream instead of only the ones the static registry enumerates, so a model outside that curated subset (one the registry has not caught up on, or one a user added by hand) no longer falls back to the generic pattern tables — `nvidia/stepfun-ai/step-5-preview` advertised 128K against upstream's 1M and dragged the whole combo's window down with it. Limits stay scoped to gateways 9router actually registers, and `build()` now detaches the installed catalog while resolving so a repeated run cannot drop its own deltas.
+- **NVIDIA NIM**: normalize assistant `reasoning` aliases to `reasoning_content` before forwarding, avoiding NIM's duplicate-field 400 when clients send both.
 # v0.5.111 (2026-10-26)
 
 ## Features
