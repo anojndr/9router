@@ -1,3 +1,7 @@
+# Unreleased
+
+## Fixes
+- **Codex**: add Responses beta/routing headers; keep compaction retries on `/compact`; preserve requested includes; sanitize call IDs and repair interrupted tool histories; inline native remote images; parse structured SSE errors before visible output; use a Codex model by default in CLI quick setup
 # v0.5.111 (2026-10-26)
 
 ## Features
