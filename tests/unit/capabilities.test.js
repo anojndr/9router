@@ -176,6 +176,49 @@ describe("getCapabilitiesForModel — Qwen max/plus vision", () => {
     expect(caps.vision).toBe(true);
   });
 
+  it("Qwen 3.8 open-weight 27B line is vision at its 262144 window and output (any provider)", () => {
+    // Custom providers (e.g. hetzner/Qwen3.8-27B) resolve purely through the
+    // pattern table: no PROVIDER_CAPABILITIES entry, no synced-catalog overlay.
+    // Both limits are the full window per the models.dev listings for this
+    // weight (hetzner, nebius, ovhcloud, evroc, wandb) — not the 65536 the
+    // older 3.5/3.6-27b vendor entries carry.
+    // The last case is the vendor-prefixed id form (as stored in a custom
+    // provider's model rows, e.g. hetzner/Qwen/Qwen3.8-27B): the prefix is
+    // stripped before pattern matching, so caps are identical.
+    for (const [provider, id] of [["hetzner", "Qwen3.8-27B"], [null, "qwen3.8-27b"], ["vultr", "qwen3.8-27b"], ["hetzner", "Qwen/Qwen3.8-27B"]]) {
+      const caps = getCapabilitiesForModel(provider, id);
+      expect(caps.vision).toBe(true);
+      expect(caps.reasoning).toBe(true);
+      expect(caps.thinkingFormat).toBe("qwen");
+      expect(caps.contextWindow).toBe(262144);
+      expect(caps.maxOutput).toBe(262144);
+    }
+  });
+
+  it("qwen3.8-max has vision (*qwen*max* fires before *qwen3.8*)", () => {
+    const caps = getCapabilitiesForModel(null, "qwen3.8-max");
+    expect(caps.vision).toBe(true);
+    expect(caps.reasoning).toBe(true);
+  });
+
+  it("qwen3.8 API line has vision + video at 1M/131072", () => {
+    const caps = getCapabilitiesForModel(null, "qwen3.8-flash");
+    expect(caps.vision).toBe(true);
+    expect(caps.videoInput).toBe(true);
+    expect(caps.reasoning).toBe(true);
+    expect(caps.contextWindow).toBe(1000000);
+    expect(caps.maxOutput).toBe(131072);
+  });
+
+  it("qwen3.8-2.4t-a95b stays text-only at its 262144 window (no vision on any listing)", () => {
+    const caps = getCapabilitiesForModel(null, "qwen3.8-2.4t-a95b");
+    expect(caps.vision).toBe(false);
+    expect(caps.reasoning).toBe(true);
+    expect(caps.thinkingFormat).toBe("qwen");
+    expect(caps.contextWindow).toBe(262144);
+    expect(caps.maxOutput).toBe(65536);
+  });
+
   it("qwq has no vision (thinking-only model)", () => {
     const caps = getCapabilitiesForModel(null, "qwq-32b");
     expect(caps.vision).toBe(false);

@@ -1,3 +1,8 @@
+# v0.5.113 (2026-10-29)
+
+## Fixes
+- **Capabilities**: add the missing Qwen 3.8 rows to `PATTERN_CAPABILITIES` — the whole family fell through to the text-only `*qwen*` catch-all, so vision-capable 3.8 ids (incl. the open-weight `Qwen3.8-27B` on custom providers like Hetzner) were reported image-blind. The 27B line now resolves to vision with its real 262144 context **and** 262144 max output (per the models.dev listings for the weight, which cap both at the full window — not the 65536 the older 3.5/3.6-27b vendor entries carry), the API line (flash/flash-next) to vision + video at 1M/131072, and `qwen3.8-2.4t-a95b` is explicitly kept text-only
+
 # v0.5.112 (2026-10-28)
 
 ## Features

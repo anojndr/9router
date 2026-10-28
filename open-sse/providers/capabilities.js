@@ -569,6 +569,18 @@ export const PATTERN_CAPABILITIES = [
   { pattern: "*qwen3.5*",       caps: { vision: true, videoInput: true, reasoning: true, thinkingFormat: "qwen", contextWindow: 1000000, maxOutput: 65536 } },
   { pattern: "*qwen3.6*",       caps: { vision: true, videoInput: true, reasoning: true, thinkingFormat: "qwen", contextWindow: 1000000, maxOutput: 65536 } },
   { pattern: "*qwen3.7*",       caps: { vision: true, videoInput: true, reasoning: true, thinkingFormat: "qwen", contextWindow: 1000000, maxOutput: 65536 } },
+  // Qwen 3.8 (Sep 2026) — the 3.5/3.6/3.7 rows above predate it, so without its
+  // own row the whole family fell through to the text-only *qwen* catch-all and
+  // even the vision-capable 27B open-weight line was reported image-blind.
+  // 27B: the models.dev listings for this weight agree on 262144 context AND
+  // 262144 output (hetzner, nebius, ovhcloud, evroc, wandb) — both limits are
+  // the full window, not the 65536 the older 3.5/3.6-27b vendor entries carry.
+  // Image input only (video on some hosts, so not advertised).
+  // 2.4T-A95B: text-only on every listing — deliberately kept off vision.
+  // API line (flash/flash-next/others): 1M window, image + video, 131072 out.
+  { pattern: "*qwen3.8*27b*",   caps: { vision: true, reasoning: true, thinkingFormat: "qwen", contextWindow: 262144, maxOutput: 262144 } },
+  { pattern: "*qwen3.8*2.4t*",  caps: { reasoning: true, thinkingFormat: "qwen", contextWindow: 262144, maxOutput: 65536 } },
+  { pattern: "*qwen3.8*",       caps: { vision: true, videoInput: true, reasoning: true, thinkingFormat: "qwen", contextWindow: 1000000, maxOutput: 131072 } },
   { pattern: "*qwen*plus*",     caps: { vision: true, reasoning: true, thinkingFormat: "qwen", contextWindow: 1000000, maxOutput: 65536 } },
   { pattern: "*qwen*235b*",     caps: { reasoning: true, thinkingFormat: "qwen", contextWindow: 262144 } },
   { pattern: "*qwq*",           caps: { reasoning: true, thinkingFormat: "qwen", thinkingCanDisable: false, contextWindow: 131072 } },
