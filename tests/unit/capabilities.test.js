@@ -189,16 +189,40 @@ describe("getCapabilitiesForModel — Qwen max/plus vision", () => {
       const caps = getCapabilitiesForModel(provider, id);
       expect(caps.vision).toBe(true);
       expect(caps.reasoning).toBe(true);
-      expect(caps.thinkingFormat).toBe("qwen");
+      // Qwen 3.8's official thinking control is reasoning_effort (qwen-effort
+      // format), not the legacy enable_thinking/thinking_budget qwen format.
+      expect(caps.thinkingFormat).toBe("qwen-effort");
       expect(caps.contextWindow).toBe(262144);
       expect(caps.maxOutput).toBe(262144);
     }
   });
 
-  it("qwen3.8-max has vision (*qwen*max* fires before *qwen3.8*)", () => {
+  it("qwen3.8-max resolves above *qwen*max* (vendor listing: 1M/131072, vision + video, qwen-effort)", () => {
+    // First-match-wins: the *qwen3.8* row must beat the legacy *qwen*max* row
+    // (3.7-era 65536 out, no video), otherwise qwen3.8-max would keep the
+    // legacy enable_thinking/thinking_budget wire while the level picker
+    // advertises the reasoning_effort levels.
     const caps = getCapabilitiesForModel(null, "qwen3.8-max");
     expect(caps.vision).toBe(true);
+    expect(caps.videoInput).toBe(true);
     expect(caps.reasoning).toBe(true);
+    expect(caps.thinkingFormat).toBe("qwen-effort");
+    expect(caps.contextWindow).toBe(1000000);
+    expect(caps.maxOutput).toBe(131072);
+  });
+
+  it("qwen3.8-omni-flash keeps audio + video on the qwen-effort format", () => {
+    const caps = getCapabilitiesForModel(null, "qwen3.8-omni-flash");
+    expect(caps.vision).toBe(true);
+    expect(caps.audioInput).toBe(true);
+    expect(caps.videoInput).toBe(true);
+    expect(caps.thinkingFormat).toBe("qwen-effort");
+  });
+
+  it("non-3.8 omni ids keep the legacy qwen row (format switch is 3.8-scoped)", () => {
+    const caps = getCapabilitiesForModel(null, "qwen-omni-turbo");
+    expect(caps.audioInput).toBe(true);
+    expect(caps.thinkingFormat).toBe("qwen");
   });
 
   it("qwen3.8 API line has vision + video at 1M/131072", () => {
@@ -214,7 +238,7 @@ describe("getCapabilitiesForModel — Qwen max/plus vision", () => {
     const caps = getCapabilitiesForModel(null, "qwen3.8-2.4t-a95b");
     expect(caps.vision).toBe(false);
     expect(caps.reasoning).toBe(true);
-    expect(caps.thinkingFormat).toBe("qwen");
+    expect(caps.thinkingFormat).toBe("qwen-effort");
     expect(caps.contextWindow).toBe(262144);
     expect(caps.maxOutput).toBe(65536);
   });
